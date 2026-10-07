@@ -6,11 +6,15 @@ so the neo4j async driver's connections are never orphaned across request bounda
 """
 
 import os
+import io
 import asyncio
 import logging
 import re
 import requests
 from datetime import datetime
+
+import pandas as pd
+import PyPDF2
 
 from flask import Flask, request, jsonify, render_template
 
@@ -203,6 +207,66 @@ def api_chat():
 
     except Exception as exc:
         logger.exception("Chat error: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+
+
+@application.route("/api/ingest-file", methods=["POST"])
+def api_ingest_file():
+    """
+    Accepts a CSV or PDF file upload, extracts text, and ingests each
+    row/page as a separate Graphiti episode into Neo4j.
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded."}), 400
+
+    uploaded_file = request.files["file"]
+    filename      = uploaded_file.filename or "unknown"
+    file_bytes    = uploaded_file.read()
+    ext           = filename.rsplit(".", 1)[-1].lower()
+    episodes      = []  # list of (name, content) tuples to ingest
+
+    try:
+        if ext == "csv":
+            # Read CSV and convert each row into a readable text sentence
+            df = pd.read_csv(io.BytesIO(file_bytes))
+            for i, row in df.iterrows():
+                row_text = ", ".join([f"{col}: {val}" for col, val in row.items() if str(val).strip()])
+                episodes.append((f"{filename}-row-{i+1}", row_text))
+
+        elif ext == "pdf":
+            # Read PDF and convert each page into a separate episode
+            reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+            for i, page in enumerate(reader.pages):
+                text = page.extract_text() or ""
+                text = text.strip()
+                if text:
+                    episodes.append((f"{filename}-page-{i+1}", text))
+
+        else:
+            return jsonify({"error": f"Unsupported file type: .{ext}. Please upload a CSV or PDF."}), 400
+
+        if not episodes:
+            return jsonify({"error": "File was empty or could not be parsed."}), 400
+
+        # Ingest all episodes into Graphiti / Neo4j
+        ingested = 0
+        for name, content in episodes:
+            try:
+                run_fresh(_async_ingest(name=name, content=content))
+                ingested += 1
+            except Exception as ep_err:
+                logger.warning("Skipped episode '%s': %s", name, ep_err)
+
+        return jsonify({
+            "status": "success",
+            "filename": filename,
+            "total_episodes": len(episodes),
+            "ingested": ingested,
+            "message": f"Successfully ingested {ingested} of {len(episodes)} sections from '{filename}' into the knowledge graph."
+        })
+
+    except Exception as exc:
+        logger.exception("File ingestion failed: %s", exc)
         return jsonify({"error": str(exc)}), 500
 
 

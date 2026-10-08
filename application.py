@@ -13,7 +13,7 @@ import re
 import requests
 from datetime import datetime
 
-import pandas as pd
+import csv
 import PyPDF2
 
 from flask import Flask, request, jsonify, render_template
@@ -227,11 +227,13 @@ def api_ingest_file():
 
     try:
         if ext == "csv":
-            # Read CSV and convert each row into a readable text sentence
-            df = pd.read_csv(io.BytesIO(file_bytes))
-            for i, row in df.iterrows():
-                row_text = ", ".join([f"{col}: {val}" for col, val in row.items() if str(val).strip()])
-                episodes.append((f"{filename}-row-{i+1}", row_text))
+            # Read CSV using built-in csv module to save memory
+            csv_text = file_bytes.decode('utf-8').splitlines()
+            reader = csv.DictReader(csv_text)
+            for i, row in enumerate(reader):
+                row_text = ", ".join([f"{col}: {val}" for col, val in row.items() if val and str(val).strip()])
+                if row_text:
+                    episodes.append((f"{filename}-row-{i+1}", row_text))
 
         elif ext == "pdf":
             # Read PDF and convert each page into a separate episode

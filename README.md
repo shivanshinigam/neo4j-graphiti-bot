@@ -147,6 +147,25 @@ Step 5 — Flask replies to Streamlit
 
 **One line:** User writes fact → Flask → Groq extracts entities → Gemini creates vectors → Neo4j saves graph → n10s classifies nodes
 
+### When a CSV is uploaded from the frontend
+
+The `/api/ingest-file` route converts every CSV row into a separate episode.
+**n10s runs once per row** — so a 50-row CSV triggers 50 Graphiti writes and 50 n10s classification passes.
+
+```
+CSV uploaded (50 rows)
+  --> application.py parses into 50 episodes
+  --> FOR EACH ROW:
+        Graphiti writes Node + Edge + Vector to Neo4j
+        OntologyValidator.apply_post_ingest_rules()  <-- n10s runs HERE, every row
+        Node gets classified: :Organisation / :Person / :Product / :Contract
+```
+
+> **Performance note:** For large CSVs (500+ rows), ingestion will be slow because each row
+> is a separate round trip to Graphiti → Gemini → Neo4j → n10s. This is intentional and correct
+> for B2B batch ingestion (e.g., overnight jobs). For real-time high-volume streaming,
+> a Kafka queue will be added in the next sprint to handle this asynchronously.
+
 ---
 
 ## Retrieval Workflow

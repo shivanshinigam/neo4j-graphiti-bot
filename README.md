@@ -1,237 +1,353 @@
 # High Accuracy Fast AI Agents
 
-> **A deterministic, hallucination-free B2B RAG system built on Knowledge Graphs — not just vector similarity.**
-
-Full system documentation: [Architecture & Design Document](https://docs.google.com/document/d/1CLrvQRWzJqZcOdEudTX-Tkn9L5b1XHEDP_m1LU-jI3A/edit?usp=sharing)
-
----
-
-## Why This Exists
-
-Most enterprise AI chatbots are built on basic Retrieval-Augmented Generation (RAG). They chunk documents, stuff them into a vector database, and ask a large LLM to guess an answer. The result is:
-
-- **Hallucinations** — the LLM fabricates details not in the data
-- **High cost** — entire document pages are sent as LLM tokens
-- **Slow inference** — large prompts take longer to process
-- **No audit trail** — impossible to know *when* a fact was true
-
-This system solves all four problems by replacing the vector-only approach with a **Bitemporal Knowledge Graph** (Neo4j + Graphiti). The LLM is used *only* for language formatting, not for "thinking up" answers.
+> A deterministic, hallucination-free B2B Knowledge Graph AI system.  
+> The LLM is used only for language. The answers come from the graph.
 
 ---
 
-## The 4 Core Differentiators
+## Quick Navigation
 
-### 1. Separation of Concerns — Decoupled I/O
-Ingestion and querying are completely separated. The Streamlit UI (query layer) and the Flask API (ingestion engine) run as two independent services on AWS Elastic Beanstalk. Ingestion jobs are processed asynchronously in the background — just like a WhatsApp message queue — so a large PDF upload never freezes the chat interface for other users.
+| What you need | Where to go |
+|---|---|
+| How the system works end-to-end | [System Architecture](#system-architecture) |
+| File call flow (which file calls which) | [Code Call Flow](#code-call-flow) |
+| Ingestion step-by-step | [Ingestion Workflow](#ingestion-workflow) |
+| Retrieval step-by-step | [Retrieval Workflow](#retrieval-workflow) |
+| Full tech stack | [Tech Stack](#tech-stack) |
+| AWS hosting, links, wiring | [Hosting & Deployment](#hosting--deployment) |
+| Frontend (Streamlit UI) | [`streamlit-ui/`](./streamlit-ui/README.md) |
+| n10s Ontology rules | [`ontology.py`](./ontology.py) |
+| Full architecture doc (Google Doc) | [Architecture Document](https://docs.google.com/document/d/1CLrvQRWzJqZcOdEudTX-Tkn9L5b1XHEDP_m1LU-jI3A/edit?usp=sharing) |
+| Roadmap | [Roadmap](#roadmap) |
 
-### 2. Higher Accuracy — Graph Semantic Ontology, Not Just Similarity
-Instead of using vector similarity to guess which document chunk might be relevant, the system builds an actual graph of **Entities** (e.g., Acme Corp) and **Relationships** (e.g., IS_A → Premium Client). When a user asks a question, the system traverses guaranteed, validated graph edges. The answer is deterministic — it comes from the graph, not from the LLM's imagination.
+---
 
-### 3. Fewer Tokens — LLM Only for Language Support
-In standard RAG, 2–5 pages of raw text are sent to the LLM per query. This system sends only 2–3 bullet points extracted from the graph. The LLM's sole job is to format those graph facts into a readable sentence. This drastically reduces token usage, cloud inference costs, and response latency.
+## What This Is
 
-### 4. Bitemporal Stamping — Two Timestamps Per Fact
-Every fact written to Neo4j carries two timestamps:
-- **Event time** — when the event actually occurred in the real world
-- **Ingestion time** — when the data was added to our system
+Most AI chatbots are built on basic RAG — they stuff documents into a vector DB and ask the LLM to guess an answer.
 
-This creates an immutable, append-only audit log. Old states are never deleted; they are superseded by newer states. Enterprises get a perfect historical record — critical for compliance, finance, and healthcare.
+This system is fundamentally different:
+
+- **The graph stores the facts.** Graphiti + Neo4j extract and store Entities, Relationships, and dense Vectors from every document.
+- **The LLM never guesses.** When a question comes in, the answer is pulled directly from the graph. The LLM only formats the language.
+- **Every fact is timestamped twice.** When it happened, and when it was ingested — creating a full audit log. Nothing is deleted; states are superseded.
+- **Ontology enforced.** After every write, `ontology.py` runs Cypher rules to classify nodes into semantic types (Organisation, Person, Product, Contract). The graph is always semantically consistent.
+
+---
+
+## System Architecture
+
+```
+                            USER
+                             |
+                     +-------+-------+
+                     |   Streamlit   |   <-- streamlit-ui/  (Frontend)
+                     |   Query UI    |       Hosted: AWS Elastic Beanstalk
+                     +-------+-------+
+                             |
+                  HTTP POST /api/chat
+                  HTTP POST /api/ingest-file
+                             |
+                     +-------+-------+
+                     |     Flask     |   <-- application.py (Backend)
+                     |   API Engine  |       Hosted: AWS Elastic Beanstalk
+                     +-------+-------+
+                             |
+           +-----------------+-----------------+
+           |                 |                 |
+    +------+------+   +------+------+   +------+------+
+    |   Neo4j     |   |   Gemini    |   |    Groq     |
+    |   Aura      |   |  Embedder   |   |    LLM      |
+    | (Graph DB)  |   | (Vectors)   |   | (Language)  |
+    +-------------+   +-------------+   +-------------+
+           |
+    +------+------+
+    |  ontology.py|
+    |  n10s Rules |
+    | (Semantic   |
+    |  Classifier)|
+    +-------------+
+```
+
+**Two separate AWS Elastic Beanstalk environments. Neither can see the other's internals.**
+The Frontend only ever calls the Backend API. It never touches the database or API keys directly.
+
+---
+
+## Code Call Flow
+
+```
+AWS starts the app
+  Procfile --> application.py (Flask server starts)
+
+When a user sends a message:
+
+  streamlit_app.py
+    --> POST /api/chat --> application.py
+
+  application.py
+    --> graphiti_service.py (ingest or search)
+
+  graphiti_service.py
+    --> Gemini  (convert text to numbers / vectors)
+    --> Neo4j   (save or search graph nodes and edges)
+    --> ontology.py (classify new nodes into semantic types)
+
+  application.py
+    --> Groq (format the graph facts into a clean sentence)
+
+  application.py
+    --> streamlit_app.py --> User sees the reply
+
+One line:
+Procfile -> application.py -> graphiti_service.py -> Gemini + Neo4j + ontology.py -> Groq -> User
+```
+
+---
+
+## Ingestion Workflow
+
+When a user uploads a file or types "Remember that Acme Corp is a premium client":
+
+```
+Step 1 — streamlit_app.py
+  User types / uploads
+  --> POST /api/chat or /api/ingest-file --> application.py
+
+Step 2 — application.py
+  Detects "Remember that" / "Store" keyword
+  --> This is an INGESTION request
+  --> run_fresh() creates a fresh async event loop
+
+Step 3 — graphiti_service.py --> svc.ingest()
+  Graphiti does 3 things in sequence:
+
+  1. Calls Groq LLM
+     Reads the sentence
+     Extracts: Entity = "Acme Corp", Property = "premium client"
+
+  2. Calls Gemini Embedder
+     Converts text into 1536 numbers (a dense vector)
+     So it can be found later by similarity search
+
+  3. Writes to Neo4j Aura
+     Saves the Entity as a Node
+     Saves the Relationship as an Edge
+     Saves the 1536 numbers as a DenseVector on the node
+     Stamps two timestamps: event_time + ingestion_time (bitemporal)
+
+Step 4 — ontology.py --> OntologyValidator.apply_post_ingest_rules()
+  Runs Cypher queries on Neo4j
+  Classifies the new "Acme Corp" node as :Organisation
+  Enforces semantic rules on the graph
+
+Step 5 — Flask replies to Streamlit
+  User sees: "Stored in the knowledge graph"
+```
+
+**One line:** User writes fact → Flask → Groq extracts entities → Gemini creates vectors → Neo4j saves graph → n10s classifies nodes
+
+---
+
+## Retrieval Workflow
+
+When a user asks "What type of client is Acme Corp?":
+
+```
+Step 1 — streamlit_app.py
+  User types question
+  --> POST /api/chat --> application.py
+
+Step 2 — application.py
+  No "Remember that" keyword found
+  --> This is a QUERY request
+
+Step 3 — graphiti_service.py --> svc.search()
+  Graphiti does 3 things internally:
+
+  1. Calls Gemini Embedder
+     Converts the question into 1536 numbers
+
+  2. Searches Neo4j
+     Finds the closest matching vectors
+     Traverses graph edges to find related facts
+
+  3. Gemini Reranker
+     Reranks results by relevance
+     Returns top 5 matching facts
+
+Step 4 — application.py --> _synthesize_answer()
+  Sends only those 2-3 bullet facts to Groq
+  Groq formats them into one readable sentence
+  (Groq does NOT invent anything — it only formats what the graph returned)
+
+Step 5 — Flask replies to Streamlit
+  User sees a clean, accurate answer
+```
+
+**One line:** Question → Flask → Graphiti (Gemini encodes + Neo4j searches + reranks) → Groq formats → User sees reply
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology | Role |
-|-------|-----------|------|
-| Query UI | Streamlit (Python) | Chat interface, file upload, knowledge store viewer |
-| Backend API | Flask + Gunicorn | REST API for ingestion and retrieval |
-| Knowledge Graph Engine | Graphiti-core 0.30.2 | Extracts entities, writes graph episodes to Neo4j |
-| Graph Database | Neo4j Aura (Cloud) | Stores nodes, edges, and dense vector embeddings |
-| Embeddings | Google Gemini gemini-embedding-001 | Converts text to 1536-dim dense vectors |
-| LLM (Entity Extraction) | Google Gemini gemini-2.0-flash | Extracts graph entities during ingestion |
-| LLM (Answer Formatting) | Groq openai/gpt-oss-120b | Formats graph facts into readable sentences |
-| Reranker | Gemini Reranker | Reranks search results for maximum precision |
-| File Ingestion | PyPDF2, Python csv | Parses PDFs and CSVs into graph episodes |
+| Layer | Technology | Purpose |
+|---|---|---|
+| Frontend UI | Streamlit (Python) | Chat, file upload, client wizard |
+| Backend API | Flask + Gunicorn | REST API — ingestion and retrieval |
+| Knowledge Graph | Graphiti-core 0.30.2 | Extracts entities, writes episodes to Neo4j |
+| Graph Database | Neo4j Aura (Cloud) | Stores nodes, edges, dense vectors |
+| Embeddings | Gemini `gemini-embedding-001` | Converts text to 1536-dim vectors |
+| Entity Extraction LLM | Gemini `gemini-2.0-flash` | Extracts graph entities during ingestion |
+| Answer Formatting LLM | Groq `openai/gpt-oss-120b` | Formats graph facts into readable sentences |
+| Reranker | Gemini Reranker | Reranks search results by relevance |
+| Semantic Ontology | `ontology.py` (n10s-style) | Classifies nodes post-write: Organisation, Person, Product, Contract |
+| File Parsing | PyPDF2, Python `csv` | Parses PDFs and CSVs into episodes |
+| Async Runtime | Python asyncio + nest-asyncio | Non-blocking graph ops inside Flask |
 | Hosting | AWS Elastic Beanstalk | Two separate environments (UI + API) |
-| Async Runtime | Python asyncio + nest-asyncio | Non-blocking graph operations on Flask |
-| Future — Ontology | neosemantics (n10s) for Neo4j | OWL/RDF-based semantic rules on the graph (next sprint) |
+| Future: Ontology Plugin | neosemantics (n10s) for Neo4j | Full OWL/RDF enforcement at DB level |
 
 ---
 
-## Hosting & Wiring Guide
+## Hosting & Deployment
 
-This system runs as **two completely separate services** on AWS Elastic Beanstalk.
+### Two Services, Two Environments
 
-```
-                         USER
-                           |
-                    +------+------+
-                    |  Streamlit  |  <-- context-platform EB Environment
-                    |  (Port 80)  |      (Frontend / Query UI)
-                    +------+------+
-                           |
-                     HTTP POST /api/chat
-                     HTTP POST /api/ingest-file
-                           |
-                    +------+------+
-                    |    Flask    |  <-- neo4j-graphiti-bot EB Environment
-                    |  (Port 80)  |      (Backend / AI Engine)
-                    +------+------+
-                           |
-              +------------+------------+
-              |            |            |
-       +------+--+  +------+--+  +------+---+
-       |  Neo4j  |  | Gemini  |  |   Groq   |
-       |  Aura   |  |  (Free) |  |  (Fast)  |
-       +---------+  +---------+  +----------+
-```
+| | Backend (this repo) | Frontend |
+|---|---|---|
+| **GitHub** | github.com/aparneshgaurav/highAccuracyFastAiAgents | github.com/shivanshinigam/context-platform |
+| **AWS App** | neo4j-graphiti-bot | context-platform |
+| **AWS Env** | Neo4j-graphiti-bot-env | context-platform-env |
+| **Region** | us-east-1 | us-east-1 |
+| **Platform** | Python 3.14 / Amazon Linux 2023 | Python 3.14 / Amazon Linux 2023 |
+| **Entry point** | `gunicorn application:application` | Streamlit via supervisor |
 
-### Service 1 — Backend AI Engine (this repo)
-| Property | Value |
-|----------|-------|
-| GitHub Repo | https://github.com/aparneshgaurav/highAccuracyFastAiAgents.git |
-| AWS Application | neo4j-graphiti-bot |
-| AWS Environment | Neo4j-graphiti-bot-env |
-| Region | us-east-1 |
-| Platform | Python 3.14 on Amazon Linux 2023 |
-| Entry Point | application:application (Gunicorn) |
-| Key File | Procfile: `web: gunicorn application:application --workers 1 --timeout 120` |
+### Where each external service lives
 
-### Service 2 — Frontend Query UI (context-platform)
-| Property | Value |
-|----------|-------|
-| GitHub Repo | https://github.com/shivanshinigam/context-platform.git |
-| AWS Application | context-platform |
-| AWS Environment | context-platform-env |
-| Region | us-east-1 |
-| Platform | Python 3.14 on Amazon Linux 2023 |
-| Entry Point | Streamlit via supervisor (start_services.sh) |
+| Service | Provider | Where hosted |
+|---|---|---|
+| Neo4j graph database | Neo4j Aura (neo4j.com cloud) | External — NOT on AWS |
+| Gemini embeddings + LLM | Google AI Studio (free tier) | External — Google Cloud |
+| Groq LLM inference | Groq Cloud | External — Groq hardware |
+
+Neo4j is **not on AWS**. It is a third-party cloud service our AWS app connects to over the internet,
+similar to how an app connects to an external database.
 
 ### Environment Variables (set in AWS EB Console → Configuration → Software)
 
-| Variable | Description |
-|----------|-------------|
-| NEO4J_URI | neo4j+s://374c3f2c.databases.neo4j.io |
-| NEO4J_USERNAME | neo4j |
-| NEO4J_PASSWORD | Your Neo4j Aura password |
-| GEMINI_API_KEY | From https://aistudio.google.com/apikey |
-| GROQ_API_KEY | From https://console.groq.com |
-| FLASK_SECRET_KEY | Any random string |
+| Variable | Value |
+|---|---|
+| `NEO4J_URI` | `neo4j+s://374c3f2c.databases.neo4j.io` |
+| `NEO4J_USERNAME` | `neo4j` |
+| `NEO4J_PASSWORD` | Your Neo4j Aura password |
+| `GEMINI_API_KEY` | From https://aistudio.google.com/apikey |
+| `GROQ_API_KEY` | From https://console.groq.com |
+| `FLASK_SECRET_KEY` | Any random string |
+
+Credentials are **never written in the code**. They are environment variables in the EB console — completely secure.
+
+### Deploy the Backend (this repo)
+
+```bash
+zip -r application.zip . -x "*.git*" -x "*venv*" -x "*__pycache__*" -x "*.env"
+```
+Upload `application.zip` → AWS EB Console → Neo4j-graphiti-bot-env → Upload and Deploy.
+
+### Deploy the Frontend
+
+See [`streamlit-ui/README.md`](./streamlit-ui/README.md) for full frontend deployment steps.
 
 ---
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /health | Health check — returns {"status": "ok"} |
-| POST | /api/chat | Send a message — auto-detects ingest vs. query intent |
-| POST | /api/ingest | Directly ingest a text episode |
-| POST | /api/query | Directly query the knowledge graph |
-| POST | /api/ingest-file | Upload and ingest a CSV or PDF file |
+| Method | Endpoint | What it does |
+|---|---|---|
+| `GET` | `/health` | Health check — returns `{"status": "ok"}` |
+| `POST` | `/api/chat` | Main endpoint — auto-detects ingest vs query |
+| `POST` | `/api/ingest` | Directly ingest a text episode |
+| `POST` | `/api/query` | Directly query the graph |
+| `POST` | `/api/ingest-file` | Upload and ingest a CSV or PDF |
 
 ---
 
-## Code Workflow
-
-### Ingestion Flow
-```
-User uploads file / types "Remember that..."
-  -> Streamlit sends POST /api/ingest-file or /api/chat
-  -> Flask (application.py) receives request
-  -> PyPDF2 / csv parses file into text episodes
-  -> run_fresh() creates a fresh async event loop
-  -> GraphitiService.ingest() is called
-      -> Graphiti calls Gemini to extract Entities & Relationships
-      -> Graphiti calls Gemini Embedder -> converts text to dense vectors
-      -> Graphiti writes Node, Edge, and DenseVector to Neo4j Aura
-  -> Flask returns success response to Streamlit
-```
-
-### Retrieval Flow
-```
-User types a question
-  -> Streamlit sends POST /api/chat
-  -> Flask detects no ingest intent -> calls GraphitiService.search()
-  -> Graphiti calls Gemini Embedder -> converts question to vector
-  -> Graphiti searches Neo4j using vector similarity + graph traversal
-  -> Gemini Reranker reranks results by relevance
-  -> Top facts returned to Flask
-  -> Flask sends facts to Groq with strict prompt: "Format only, do not guess"
-  -> Groq returns a clean sentence
-  -> Flask sends reply to Streamlit -> User sees the answer
-```
-
----
-
-## File Structure
+## Repo Structure
 
 ```
-neo4j-graphiti-bot/
-├── application.py              # Flask app — all API routes
-├── graphiti_service.py         # Graphiti wrapper — ingest + search logic
-├── requirements.txt            # Python dependencies
-├── Procfile                    # Gunicorn startup command for Elastic Beanstalk
+highAccuracyFastAiAgents/
+│
+├── application.py          All Flask API routes
+├── graphiti_service.py     Graphiti + n10s wrapper — ingest and search
+├── ontology.py             n10s-style semantic ontology rules
+├── requirements.txt        Python dependencies
+├── Procfile                Gunicorn startup for Elastic Beanstalk
+│
 ├── .ebextensions/
-│   └── 01_environment.config  # AWS environment variable config
-├── static/
-│   ├── css/style.css           # Chat UI styles
-│   └── js/chat.js              # Chat UI JavaScript
-└── templates/
-    └── index.html              # Chat UI HTML template
+│   └── 01_environment.config   AWS environment variable declarations
+│
+├── static/                 Chat UI CSS and JavaScript
+├── templates/              Chat UI HTML template
+│
+└── streamlit-ui/           Complete Streamlit frontend
+    ├── streamlit_app.py    Main chat + file upload page
+    ├── pages/              Sidebar wizard pages (Clients, Upload, etc.)
+    ├── api/                Flask API routes for client management
+    ├── utils/              API helper utilities
+    └── README.md           Full frontend documentation
 ```
 
 ---
 
-## Deployment Steps
+## Roadmap
 
-### Deploy the Backend (this repo)
-1. Zip the folder:
-   `zip -r application.zip . -x "*.git*" -x "*venv*" -x "*__pycache__*" -x "*.env"`
-2. Go to AWS Elastic Beanstalk → Neo4j-graphiti-bot-env
-3. Click Upload and Deploy → upload application.zip
-4. Wait for deployment to go green
+### n10s Full Plugin (Next Sprint)
+The current `ontology.py` applies semantic rules at the **Python application layer** after every Graphiti write.
+The next upgrade is to install the true **neosemantics (n10s) Neo4j plugin** on a Neo4j Professional instance,
+which enforces OWL/RDF ontology rules directly **at the database level** — making it impossible to write
+semantically invalid data even if the application has a bug.
 
-### Deploy the Frontend (context-platform)
-1. Zip the context-platform folder:
-   `zip -r context.zip . -x "*.git*" -x "*venv*" -x "*__pycache__*" -x "*.DS_Store"`
-2. Go to AWS Elastic Beanstalk → context-platform-env
-3. Click Upload and Deploy → upload context.zip
+```
+# Future: full n10s initialisation
+CALL n10s.graphconfig.init()
+CALL n10s.onto.import.inline(<OWL_TURTLE_STRING>, "Turtle")
+```
 
----
+### Sector-Specific Small Language Models (SLMs)
+A general LLM does not deeply understand industry-specific abbreviations.
+"CAR" means Capital Adequacy Ratio in Finance but means the vehicle in Automotive.
 
-## Roadmap — What Is Being Built Next
-
-### n10s (neosemantics) Integration
-Currently, Graphiti extracts entities and relationships automatically from free text. The next sprint will layer **neosemantics (n10s)** rules on top of the Neo4j graph. This enforces an industry-specific ontology at write time — so if someone tries to save data that violates the semantic rules, the graph will reject it before it is ever stored. This moves the system from probabilistic to fully deterministic.
-
-### Sector-Specific Small Language Models (SLMs) on HuggingFace
-
-**What this means in simple terms:**
-
-The same word means different things in different industries. For example, "CAR" in Finance means Capital Adequacy Ratio. "CAR" in Automotive means the physical vehicle. A general-purpose LLM makes mistakes on these kinds of industry-specific abbreviations.
-
-The plan is to train small, focused language models (SLMs) — one per industry sector (Finance, Healthcare, Retail, Logistics) — and host them privately on HuggingFace. Each model will have a deep, sector-specific vocabulary. Enterprise clients in Finance will use the Finance SLM. Healthcare clients will use the Healthcare SLM. This makes entity extraction during ingestion far more accurate because the model already "speaks the language" of that industry.
-
-These are hosted in a secured, private way on HuggingFace so client data never goes to a public model.
+The plan: train small, private language models — one per sector — hosted securely on HuggingFace.
+Finance clients use the Finance SLM. Healthcare clients use the Healthcare SLM.
+Entity extraction accuracy becomes far higher because the model already speaks the language of that industry.
 
 ### Per-Sector Neo4j Instances
+Instead of one shared Neo4j for all clients, each industry sector gets a dedicated Neo4j instance
+pre-loaded with that sector's domain ontology.
+The Finance graph already knows what a Bond, Portfolio, and Issuer are before any document is uploaded.
+New clients in that sector get accurate retrieval from day one with zero manual configuration.
 
-**What this means in simple terms:**
+---
 
-Right now, every client shares one Neo4j graph database. In production, each industry sector will have its own dedicated Neo4j instance that is pre-loaded with the correct domain ontology for that sector.
+## Why This Beats Standard RAG
 
-For example, the Finance Neo4j instance will already "know" what a Bond, Portfolio, and Issuer are before a single document is uploaded. The Healthcare instance will already understand what a Diagnosis, Patient, and Drug interaction means.
-
-This means that when a new Finance client joins, their data immediately gets the right structure and relationships without any manual configuration. Retrieval accuracy is much higher from day one because the graph already speaks the language of that sector.
+| Capability | Standard RAG | This System |
+|---|---|---|
+| Answer source | LLM guesses from document chunks | Neo4j graph traversal — deterministic |
+| Accuracy | Probabilistic — can hallucinate | Validated graph edges — no hallucination |
+| Token cost | Sends full page to LLM every query | Sends 2–3 bullet facts only |
+| Inference speed | Slow — large prompts | Fast — tiny prompts via Groq LPU |
+| Data privacy | Sent to public LLM (OpenAI, etc.) | Open-source model via Groq — no training data leakage |
+| Audit trail | None | Bitemporal timestamps on every node |
+| Data separation | Shared index | Per-client knowledge graph (multi-tenancy) |
 
 ---
 
 ## References
 
-- [Full Architecture & Design Document (Google Doc)](https://docs.google.com/document/d/1CLrvQRWzJqZcOdEudTX-Tkn9L5b1XHEDP_m1LU-jI3A/edit?usp=sharing)
-- [Graphiti by Zep — Knowledge Graph for AI Agents](https://github.com/getzep/graphiti)
-- [Neo4j Aura Free Cloud Instance](https://neo4j.com/cloud/platform/aura-graph-database/)
+- [Full Architecture Document (Google Doc)](https://docs.google.com/document/d/1CLrvQRWzJqZcOdEudTX-Tkn9L5b1XHEDP_m1LU-jI3A/edit?usp=sharing)
+- [Graphiti — Knowledge Graph for AI Agents](https://github.com/getzep/graphiti)
+- [Neo4j Aura Free Cloud Database](https://neo4j.com/cloud/platform/aura-graph-database/)
 - [neosemantics (n10s) — OWL/RDF on Neo4j](https://neo4j.com/labs/neosemantics/)
 - [Google AI Studio — Free Gemini API](https://aistudio.google.com/apikey)
 - [Groq — Fastest LLM Inference](https://console.groq.com)
+- [Frontend README](./streamlit-ui/README.md)

@@ -89,6 +89,7 @@ async def _async_ingest(name: str, content: str) -> None:
         password=os.environ.get("NEO4J_PASSWORD", "midd90IhHSzzD_RcFXsxG-9-dfR3UIcjAxZ0R9pBtcs"),
         gemini_api_key=os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY_HERE"),
         groq_api_key=os.environ.get("GROQ_API_KEY", "YOUR_GROQ_API_KEY_HERE"),
+        database=os.environ.get("NEO4J_DATABASE", "348d8a49"),
     )
     try:
         await svc.initialise()
@@ -103,6 +104,7 @@ async def _async_search(query: str):
         password=os.environ.get("NEO4J_PASSWORD", "midd90IhHSzzD_RcFXsxG-9-dfR3UIcjAxZ0R9pBtcs"),
         gemini_api_key=os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY_HERE"),
         groq_api_key=os.environ.get("GROQ_API_KEY", "YOUR_GROQ_API_KEY_HERE"),
+        database=os.environ.get("NEO4J_DATABASE", "348d8a49"),
     )
     try:
         await svc.initialise()

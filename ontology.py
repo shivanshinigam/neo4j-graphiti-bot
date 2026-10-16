@@ -96,17 +96,18 @@ class OntologyValidator:
         await validator.close()
     """
 
-    def __init__(self, uri: str, username: str, password: str) -> None:
+    def __init__(self, uri: str, username: str, password: str, database: str = "neo4j") -> None:
         self._driver = AsyncGraphDatabase.driver(uri, auth=(username, password))
+        self._database = database
         self._uri = uri
-        logger.info("OntologyValidator ready — uri=%s", uri)
+        logger.info("OntologyValidator ready — uri=%s db=%s", uri, database)
 
     async def apply_startup_constraints(self) -> None:
         """
         Run once at server startup to set up Neo4j uniqueness constraints.
         These guarantee that duplicate entities are never created.
         """
-        async with self._driver.session() as session:
+        async with self._driver.session(database=self._database) as session:
             for cypher in STARTUP_CONSTRAINTS:
                 try:
                     await session.run(cypher)
@@ -122,7 +123,7 @@ class OntologyValidator:
         based on the ONTOLOGY definition above.
         This is the n10s-equivalent step that enforces the semantic ontology.
         """
-        async with self._driver.session() as session:
+        async with self._driver.session(database=self._database) as session:
             # Apply Organisation labels
             org_aliases = ONTOLOGY["Organisation"]["aliases"]
             try:

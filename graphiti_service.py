@@ -48,6 +48,7 @@ class GraphitiService:
         password: str,
         gemini_api_key: str,
         groq_api_key: str,
+        database: str = "neo4j",
     ) -> None:
         # LLM: Groq (openai/gpt-oss-120b via Groq inference)
         llm_config = LLMConfig(
@@ -72,6 +73,7 @@ class GraphitiService:
             uri=uri,
             user=username,
             password=password,
+            database=database,
             llm_client=llm_client,
             embedder=embedder,
             cross_encoder=cross_encoder,
@@ -79,7 +81,7 @@ class GraphitiService:
 
         # n10s-style Ontology Validator
         # Runs Cypher rules after every ingest to classify nodes semantically
-        self._ontology = OntologyValidator(uri=uri, username=username, password=password)
+        self._ontology = OntologyValidator(uri=uri, username=username, password=password, database=database)
 
         self._initialised = False
         logger.info("GraphitiService (Gemini + n10s Ontology) created — uri=%s", uri)

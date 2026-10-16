@@ -15,6 +15,7 @@ from datetime import datetime
 
 import csv
 import PyPDF2
+from demo_data import get_sector_names, get_sector_facts, get_sector_questions, get_sector_description
 
 from flask import Flask, request, jsonify, render_template
 
@@ -270,6 +271,66 @@ def api_ingest_file():
     except Exception as exc:
         logger.exception("File ingestion failed: %s", exc)
         return jsonify({"error": str(exc)}), 500
+
+
+# ── Demo Sector Routes ───────────────────────────────────────────────────────
+
+@application.route("/api/demo-sectors", methods=["GET"])
+def api_demo_sectors():
+    """Returns list of available demo sectors for the frontend dropdown."""
+    sectors = []
+    for name in get_sector_names():
+        sectors.append({
+            "name": name,
+            "description": get_sector_description(name),
+            "fact_count": len(get_sector_facts(name)),
+            "question_count": len(get_sector_questions(name)),
+        })
+    return jsonify({"sectors": sectors})
+
+
+@application.route("/api/load-demo-data", methods=["POST"])
+def api_load_demo_data():
+    """
+    Ingests all pre-generated facts for a chosen sector into the Knowledge Graph.
+    Returns suggested demo questions so the user can immediately start querying.
+
+    Request body: { "sector": "Finance & Banking" }
+    Response:     { "status": "success", "ingested": 15, "questions": [...] }
+    """
+    body   = request.get_json(force=True, silent=True) or {}
+    sector = (body.get("sector") or "").strip()
+
+    if not sector:
+        return jsonify({"error": "Field 'sector' is required."}), 400
+
+    facts = get_sector_facts(sector)
+    if not facts:
+        return jsonify({"error": f"Sector '{sector}' not found."}), 404
+
+    ingested = 0
+    skipped  = 0
+    for i, fact in enumerate(facts):
+        episode_name = f"Demo-{sector}-fact-{i+1}-{datetime.utcnow().strftime('%H%M%S')}"
+        try:
+            run_fresh(_async_ingest(name=episode_name, content=fact))
+            ingested += 1
+        except Exception as e:
+            logger.warning("Demo ingest skipped '%s': %s", episode_name, e)
+            skipped += 1
+
+    questions = get_sector_questions(sector)
+
+    logger.info("Demo data loaded: sector=%s ingested=%d skipped=%d", sector, ingested, skipped)
+    return jsonify({
+        "status": "success",
+        "sector": sector,
+        "ingested": ingested,
+        "skipped": skipped,
+        "total_facts": len(facts),
+        "questions": questions,
+        "message": f"Loaded {ingested} facts for '{sector}' into the knowledge graph. Try the suggested questions below!"
+    })
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

@@ -84,9 +84,9 @@ def run_fresh(coro):
 
 async def _async_ingest(name: str, content: str) -> None:
     svc = GraphitiService(
-        uri=os.environ.get("NEO4J_URI", "neo4j+s://374c3f2c.databases.neo4j.io"),
-        username=os.environ.get("NEO4J_USERNAME", "neo4j"),
-        password=os.environ.get("NEO4J_PASSWORD", "dIe43mKUBPfA8XNpomJX_MRXAZ059EBQRkZszhhOLrc"),
+        uri=os.environ.get("NEO4J_URI", "neo4j+s://348d8a49.databases.neo4j.io"),
+        username=os.environ.get("NEO4J_USERNAME", "348d8a49"),
+        password=os.environ.get("NEO4J_PASSWORD", "midd90IhHSzzD_RcFXsxG-9-dfR3UIcjAxZ0R9pBtcs"),
         gemini_api_key=os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY_HERE"),
         groq_api_key=os.environ.get("GROQ_API_KEY", "YOUR_GROQ_API_KEY_HERE"),
     )
@@ -98,9 +98,9 @@ async def _async_ingest(name: str, content: str) -> None:
 
 async def _async_search(query: str):
     svc = GraphitiService(
-        uri=os.environ.get("NEO4J_URI", "neo4j+s://374c3f2c.databases.neo4j.io"),
-        username=os.environ.get("NEO4J_USERNAME", "neo4j"),
-        password=os.environ.get("NEO4J_PASSWORD", "dIe43mKUBPfA8XNpomJX_MRXAZ059EBQRkZszhhOLrc"),
+        uri=os.environ.get("NEO4J_URI", "neo4j+s://348d8a49.databases.neo4j.io"),
+        username=os.environ.get("NEO4J_USERNAME", "348d8a49"),
+        password=os.environ.get("NEO4J_PASSWORD", "midd90IhHSzzD_RcFXsxG-9-dfR3UIcjAxZ0R9pBtcs"),
         gemini_api_key=os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY_HERE"),
         groq_api_key=os.environ.get("GROQ_API_KEY", "YOUR_GROQ_API_KEY_HERE"),
     )

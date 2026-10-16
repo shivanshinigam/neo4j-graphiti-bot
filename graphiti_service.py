@@ -68,12 +68,13 @@ class GraphitiService:
         # Cross-encoder reranker: Gemini
         cross_encoder = GeminiRerankerClient(config=llm_config)
 
-        # Graphiti core client
+        # Neo4j driver with correct Aura database name (instance ID, not 'neo4j')
+        from graphiti_core.driver.neo4j_driver import Neo4jDriver
+        neo4j_driver = Neo4jDriver(uri=uri, user=username, password=password, database=database)
+
+        # Graphiti core client — pass pre-configured driver via graph_driver=
         self._client = Graphiti(
-            uri=uri,
-            user=username,
-            password=password,
-            database=database,
+            graph_driver=neo4j_driver,
             llm_client=llm_client,
             embedder=embedder,
             cross_encoder=cross_encoder,

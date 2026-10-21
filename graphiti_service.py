@@ -47,15 +47,15 @@ class GraphitiService:
         username: str,
         password: str,
         gemini_api_key: str,
-        groq_api_key: str,
+        groq_api_key: str = "",  # kept for backwards compat, no longer used
         database: str = "neo4j",
     ) -> None:
-        # LLM: Groq (openai/gpt-oss-120b via Groq inference)
+        # LLM: Gemini Flash (free, no rate-limit issues, faster than Groq)
         llm_config = LLMConfig(
-            api_key=groq_api_key,
-            model="openai/gpt-oss-120b",
+            api_key=gemini_api_key,
+            model="gemini-2.0-flash",
         )
-        llm_client = GroqClient(config=llm_config)
+        llm_client = GeminiClient(config=llm_config)
 
         # Embedder: Gemini embedding-001 (free tier)
         embedder_config = GeminiEmbedderConfig(
@@ -65,7 +65,7 @@ class GraphitiService:
         )
         embedder = GeminiEmbedder(config=embedder_config)
 
-        # Cross-encoder reranker: Gemini
+        # Cross-encoder reranker: Gemini (uses same llm_config)
         cross_encoder = GeminiRerankerClient(config=llm_config)
 
         # Neo4j driver with correct Aura database name (instance ID, not 'neo4j')

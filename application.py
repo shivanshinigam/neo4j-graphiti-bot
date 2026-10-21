@@ -10,6 +10,7 @@ import io
 import asyncio
 import logging
 import re
+import threading
 import requests
 from datetime import datetime
 
@@ -20,35 +21,34 @@ from demo_data import get_sector_names, get_sector_facts, get_sector_questions, 
 from flask import Flask, request, jsonify, render_template
 
 def _synthesize_answer(query: str, results: list, api_key: str) -> str:
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {api_key}"}
+    """Use Gemini Flash to synthesize a natural answer from graph results."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
     context = "\n".join([f"- {r['fact']}" for r in results])
-    
-    prompt = f"""You are a highly intelligent, professional AI assistant connected to a Knowledge Graph.
+
+    prompt = f"""You are a professional AI assistant connected to a Knowledge Graph.
 User's message: "{query}"
 
 Retrieved context from the Knowledge Graph:
 {context}
 
 Instructions:
-1. If the user's message is a simple greeting (e.g., "hi", "hello", "hey"), just greet them back professionally. Do NOT mention or list the retrieved context.
-2. If the user is asking a question, answer it directly and concisely using ONLY the relevant facts from the retrieved context.
-3. Do not just dump the raw facts. Synthesize a natural, conversational answer.
-4. If the retrieved context does not contain the answer, politely state that you do not know or do not have that information in your knowledge graph."""
+1. If the user's message is a simple greeting, just greet them back professionally.
+2. If the user is asking a question, answer it directly using ONLY the relevant facts from the retrieved context.
+3. Synthesize a natural, conversational answer — do not dump raw facts.
+4. If the retrieved context does not contain the answer, politely state that you don't have that information in the knowledge graph."""
 
     data = {
-        "model": "openai/gpt-oss-120b",
-        "messages": [{"role": "system", "content": prompt}],
-        "temperature": 0.3
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.3}
     }
     try:
-        r = requests.post(url, headers=headers, json=data, timeout=10)
+        r = requests.post(url, json=data, timeout=15)
         if r.ok:
-            return r.json()["choices"][0]["message"]["content"]
-    except Exception as e:
+            return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception:
         pass
-        
-    # Fallback to dumping facts if synthesis fails
+
+    # Fallback to listing facts
     lines = [f"- {r['fact']}" for r in results[:3]]
     return "Here's what I found:\n" + "\n".join(lines)
 from graphiti_service import GraphitiService
@@ -199,8 +199,8 @@ def api_chat():
                     "relevant. Try adding some facts first."
                 )
             else:
-                groq_api_key = os.environ.get("GROQ_API_KEY", "")
-                reply = _synthesize_answer(payload, results, groq_api_key)
+                gemini_api_key = os.environ.get("GEMINI_API_KEY", "")
+                reply = _synthesize_answer(payload, results, gemini_api_key)
 
             return jsonify({
                 "intent": "query",
@@ -291,14 +291,30 @@ def api_demo_sectors():
     return jsonify({"sectors": sectors})
 
 
+# ── Background ingestion state tracker ──────────────────────────────────────
+_demo_status = {}  # { sector_name: {"done": int, "total": int, "finished": bool, "questions": [...]} }
+
+
+def _ingest_facts_background(sector: str, facts: list, questions: list):
+    """Run in a background thread — ingests each fact sequentially."""
+    _demo_status[sector] = {"done": 0, "total": len(facts), "finished": False, "questions": questions}
+    for i, fact in enumerate(facts):
+        episode_name = f"Demo-{sector}-fact-{i+1}-{datetime.utcnow().strftime('%H%M%S')}"
+        try:
+            run_fresh(_async_ingest(name=episode_name, content=fact))
+            _demo_status[sector]["done"] = i + 1
+            logger.info("Demo ingest %d/%d for sector '%s'", i + 1, len(facts), sector)
+        except Exception as e:
+            logger.warning("Demo ingest skipped '%s': %s", episode_name, e)
+    _demo_status[sector]["finished"] = True
+    logger.info("Demo data fully loaded: sector=%s total=%d", sector, len(facts))
+
+
 @application.route("/api/load-demo-data", methods=["POST"])
 def api_load_demo_data():
     """
-    Ingests all pre-generated facts for a chosen sector into the Knowledge Graph.
-    Returns suggested demo questions so the user can immediately start querying.
-
-    Request body: { "sector": "Finance & Banking" }
-    Response:     { "status": "success", "ingested": 15, "questions": [...] }
+    Starts background ingestion of demo facts — returns immediately so nginx
+    never times out. Frontend should poll /api/demo-status to track progress.
     """
     body   = request.get_json(force=True, silent=True) or {}
     sector = (body.get("sector") or "").strip()
@@ -310,28 +326,50 @@ def api_load_demo_data():
     if not facts:
         return jsonify({"error": f"Sector '{sector}' not found."}), 404
 
-    ingested = 0
-    skipped  = 0
-    for i, fact in enumerate(facts):
-        episode_name = f"Demo-{sector}-fact-{i+1}-{datetime.utcnow().strftime('%H%M%S')}"
-        try:
-            run_fresh(_async_ingest(name=episode_name, content=fact))
-            ingested += 1
-        except Exception as e:
-            logger.warning("Demo ingest skipped '%s': %s", episode_name, e)
-            skipped += 1
-
     questions = get_sector_questions(sector)
 
-    logger.info("Demo data loaded: sector=%s ingested=%d skipped=%d", sector, ingested, skipped)
+    # If already finished loading, return done immediately
+    if _demo_status.get(sector, {}).get("finished"):
+        return jsonify({
+            "status": "already_loaded",
+            "sector": sector,
+            "ingested": len(facts),
+            "total_facts": len(facts),
+            "questions": questions,
+            "message": f"'{sector}' is already loaded. Try the questions below!"
+        })
+
+    # Start background thread (non-blocking)
+    t = threading.Thread(
+        target=_ingest_facts_background,
+        args=(sector, facts, questions),
+        daemon=True
+    )
+    t.start()
+
     return jsonify({
-        "status": "success",
+        "status": "loading",
         "sector": sector,
-        "ingested": ingested,
-        "skipped": skipped,
+        "ingested": 0,
         "total_facts": len(facts),
         "questions": questions,
-        "message": f"Loaded {ingested} facts for '{sector}' into the knowledge graph. Try the suggested questions below!"
+        "message": f"Loading {len(facts)} facts for '{sector}' in background. Poll /api/demo-status for progress."
+    })
+
+
+@application.route("/api/demo-status", methods=["GET"])
+def api_demo_status():
+    """Returns current ingestion progress for a sector."""
+    sector = request.args.get("sector", "").strip()
+    if not sector or sector not in _demo_status:
+        return jsonify({"status": "not_started", "done": 0, "total": 0, "finished": False})
+    s = _demo_status[sector]
+    return jsonify({
+        "status": "finished" if s["finished"] else "loading",
+        "done": s["done"],
+        "total": s["total"],
+        "finished": s["finished"],
+        "questions": s.get("questions", [])
     })
 
 

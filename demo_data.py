@@ -6,146 +6,96 @@ Each sector has:
   - QUESTIONS: Suggested demo questions that show off relational + semantic accuracy
   - DESCRIPTION: One-line summary shown in the UI dropdown
 
-The facts are intentionally interconnected — e.g., a person links to a company,
-which links to a product, which links to an event — so that graph traversal
-(not just keyword search) is needed to answer the demo questions correctly.
+Police & Defence use case:
+  - Entity resolution across FIRs (one person = multiple aliases)
+  - Gang network mapping, money laundering trail
+  - Cross-case linking (arms trafficking → murder → hawala → drugs → extortion)
 """
 
 DEMO_SECTORS = {
 
-    "Finance & Banking": {
-        "description": "Capital markets, banking, investment — CAR, bonds, portfolios",
+    "Police & Defence Intelligence": {
+        "description": "Criminal network mapping, FIR cross-linking, money trail & identity resolution",
         "facts": [
-            "JPMorgan Chase is a global investment bank headquartered in New York.",
-            "Jamie Dimon is the Chief Executive Officer of JPMorgan Chase.",
-            "JPMorgan Chase reported a Capital Adequacy Ratio (CAR) of 14.2% in Q3 2024.",
-            "JPMorgan Chase manages a bond portfolio worth $680 billion including US Treasury Bonds.",
-            "BlackRock is the world's largest asset management firm with $10 trillion in AUM.",
-            "Larry Fink is the Chief Executive Officer of BlackRock.",
-            "BlackRock's flagship product is the iShares S&P 500 ETF with $400 billion in assets.",
-            "Goldman Sachs is a leading global investment banking and securities firm.",
-            "David Solomon is the Chief Executive Officer of Goldman Sachs.",
-            "Goldman Sachs reported a Capital Adequacy Ratio (CAR) of 15.1% in Q3 2024.",
-            "The US Federal Reserve raised interest rates by 25 basis points in September 2024.",
-            "The Fed rate hike in September 2024 impacted bond valuations across JPMorgan and Goldman Sachs portfolios.",
-            "JPMorgan Chase acquired First Republic Bank in May 2023 for $10.6 billion.",
-            "BlackRock partnered with Goldman Sachs in October 2024 to co-manage a $50 billion infrastructure fund.",
-            "US Treasury Bonds are classified as Tier 1 capital assets under Basel III regulations.",
-        ],
-        "questions": [
-            "Who is the CEO of JPMorgan Chase?",
-            "What is Goldman Sachs's Capital Adequacy Ratio?",
-            "Which company did JPMorgan acquire in 2023?",
-            "How did the Fed rate hike affect JPMorgan and Goldman Sachs?",
-            "What is BlackRock's flagship product and how much does it manage?",
-            "Which two firms partnered to manage the infrastructure fund?",
-        ]
-    },
 
-    "Healthcare & Pharma": {
-        "description": "Hospitals, clinical trials, FDA approvals, drug pipelines",
-        "facts": [
-            "Pfizer is a global pharmaceutical company headquartered in New York.",
-            "Albert Bourla is the Chief Executive Officer of Pfizer.",
-            "Pfizer's Paxlovid is an oral antiviral treatment approved by the FDA for COVID-19 in 2021.",
-            "Pfizer and BioNTech co-developed the Comirnaty COVID-19 mRNA vaccine.",
-            "Apollo Hospitals is India's largest private hospital chain with 71 hospitals.",
-            "Dr. Prathap C Reddy is the founder and Chairman of Apollo Hospitals.",
-            "Apollo Hospitals launched an AI-powered diagnostic platform called Apollo AskApollo in 2024.",
-            "Johnson & Johnson is a diversified healthcare company with products in pharma, medical devices, and consumer health.",
-            "Joaquin Duato is the Chief Executive Officer of Johnson & Johnson.",
-            "Johnson & Johnson's drug Darzalex is used for treatment of multiple myeloma and generated $9.7 billion in revenue in 2023.",
-            "Apollo Hospitals partnered with Pfizer in 2024 to distribute Paxlovid across 40 Indian cities.",
-            "The FDA approved Johnson & Johnson's Tremfya for treatment of Crohn's disease in October 2024.",
-            "Pfizer invested $3.3 billion in oncology research in 2024 targeting lung and breast cancer.",
-            "Apollo Hospitals reported 99.2% diagnostic accuracy using their AI diagnostic platform.",
-            "Clinical Trial Phase 3 for Pfizer's new RSV vaccine started in September 2024 with 20,000 participants.",
-        ],
-        "questions": [
-            "Who is the CEO of Pfizer?",
-            "What did Pfizer and Apollo Hospitals partner for?",
-            "Which drug does Johnson & Johnson sell for multiple myeloma?",
-            "What FDA approval did Johnson & Johnson receive in October 2024?",
-            "What AI platform did Apollo Hospitals launch?",
-            "How much did Pfizer invest in oncology research in 2024?",
-        ]
-    },
+            # Core criminal: Rajan Mehta (multiple aliases across datasets)
+            "Rajan Mehta, also known as 'Raju Bhai', is the alleged kingpin of the Mumbai-based Mehta Crime Syndicate.",
+            "Rajan Mehta was charged under FIR #2018-MUM-0041 for operating an illegal arms trafficking network from Dharavi, Mumbai in October 2018.",
+            "In FIR #2018-MUM-0041, Rajan Mehta supplied 47 unlicensed firearms to the Navi Mumbai underworld between January and September 2018.",
+            "Rajan Mehta was arrested by Mumbai Crime Branch in November 2018 but released on bail in February 2019 after witness Suresh Nair retracted his statement.",
+            "Rajan Mehta uses the alias 'Raj Kumar' in all financial transactions to conceal his identity from law enforcement.",
+            "Under alias 'Raj Kumar', Rajan Mehta incorporated three shell companies: RK Exports Pvt Ltd, Starline Logistics, and NovaTrade Solutions, all registered in Surat, Gujarat in 2019.",
+            "RK Exports Pvt Ltd (owner: Raj Kumar, real identity: Rajan Mehta) received Rs 14.2 crore in wire transfers from UAE-based Al-Haroon General Trading between April and December 2020.",
+            "Al-Haroon General Trading in Dubai is controlled by Farooq Al-Rashidi, a known money laundering facilitator under Interpol investigation since 2017.",
+            "Farooq Al-Rashidi runs a global Hawala network that funnels Gulf money into India through fake import-export invoices.",
+            "The Hawala network of Farooq Al-Rashidi also funded the 2021 Bengaluru bomb blast, as per the NIA chargesheet filed in 2022.",
 
-    "Retail & E-Commerce": {
-        "description": "Supply chains, sales data, inventory, consumer brands",
-        "facts": [
-            "Walmart is the world's largest retailer with $648 billion in annual revenue.",
-            "Doug McMillon is the Chief Executive Officer of Walmart.",
-            "Walmart operates 10,500 stores across 24 countries.",
-            "Amazon is the world's largest e-commerce platform with $575 billion in annual revenue.",
-            "Andy Jassy is the Chief Executive Officer of Amazon.",
-            "Amazon's Prime membership has 200 million subscribers globally as of 2024.",
-            "Reliance Retail is India's largest retailer owned by Reliance Industries.",
-            "Isha Ambani is the Executive Director of Reliance Retail.",
-            "Reliance Retail acquired the franchise rights for 7-Eleven convenience stores in India in 2023.",
-            "Walmart acquired a 77% stake in Flipkart for $16 billion in 2018.",
-            "Flipkart is India's second-largest e-commerce platform after Amazon.",
-            "Amazon launched Same-Day Delivery in 50 Indian cities in partnership with Reliance Logistics in 2024.",
-            "Walmart's Black Friday 2023 sale generated $9.8 billion in revenue in a single day.",
-            "Amazon's top-selling category in India is Electronics followed by Fashion.",
-            "Reliance Retail's JioMart platform crossed 5 million daily active users in 2024.",
-        ],
-        "questions": [
-            "Who is the CEO of Walmart?",
-            "What stake does Walmart hold in Flipkart?",
-            "Who is the Executive Director of Reliance Retail?",
-            "What did Amazon and Reliance partner for in 2024?",
-            "How many subscribers does Amazon Prime have?",
-            "What was Walmart's Black Friday 2023 revenue?",
-        ]
-    },
+            # Second criminal: Leela Devi (money mule/financier)
+            "Leela Devi, 42, from Pune, was named in FIR #2020-PUN-0117 for knowingly allowing her bank accounts to be used as conduits for laundered money.",
+            "Leela Devi's accounts at Bank of Maharashtra and HDFC Bank received Rs 8.7 crore between 2019 and 2021 from shell company Starline Logistics controlled by Rajan Mehta.",
+            "Leela Devi is the sister-in-law of Prakash Devi, a Pune Police constable under departmental inquiry for leaking raid information to criminals.",
+            "Constable Prakash Devi is alleged to have tipped off Rajan Mehta about a CBI raid scheduled on Starline Logistics in March 2020, allowing Mehta to destroy evidence.",
 
-    "Logistics & Supply Chain": {
-        "description": "Shipping, freight, warehousing, last-mile delivery",
-        "facts": [
-            "DHL is the world's largest logistics company operating in 220 countries.",
-            "Tobias Meyer is the Chief Executive Officer of DHL Group.",
-            "DHL's StreetScooter is an electric delivery van fleet with 10,000 vehicles in Europe.",
-            "FedEx is a global courier and logistics company headquartered in Memphis, Tennessee.",
-            "Raj Subramaniam is the President and Chief Executive Officer of FedEx.",
-            "FedEx operates the world's largest cargo airline fleet with 700 aircraft.",
-            "Maersk is the world's largest container shipping company by fleet size.",
-            "Vincent Clerc is the Chief Executive Officer of Maersk.",
-            "Maersk operates 738 container vessels with a capacity of 4.3 million TEUs.",
-            "DHL partnered with Maersk in 2024 to offer integrated sea-air freight solutions for Asia-Europe corridors.",
-            "FedEx launched its AI-powered route optimization platform FedEx Surround in 2024.",
-            "The Suez Canal blockage in March 2021 caused a $9.6 billion per day disruption affecting Maersk and DHL shipments.",
-            "Maersk acquired Pilot Freight Services in 2022 to expand US last-mile delivery capabilities.",
-            "DHL and FedEx both reported 15% revenue growth in Q2 2024 driven by e-commerce demand.",
-            "Cold chain logistics for pharmaceutical shipments is handled by DHL Life Sciences division.",
+            # Third criminal: Vikas Tiwari (hitman/enforcer)
+            "Vikas Tiwari, known as 'Vicky Bhai', is a hitman and enforcer for Rajan Mehta's syndicate.",
+            "Vikas Tiwari is charged in FIR #2019-DEL-0089 for the murder of Anil Kapoor, a rival drug dealer in Delhi's Paharganj area in July 2019.",
+            "FIR #2019-DEL-0089 notes that Vikas Tiwari used a .32-calibre pistol — the same model found in the Dharavi arms cache linked to Rajan Mehta in FIR #2018-MUM-0041.",
+            "Vikas Tiwari is absconding since August 2019 and believed to be hiding near the Raxaul-Nepal border per Intelligence Bureau reports.",
+            "Vikas Tiwari's mobile records (IMEI 356723099012345) show 37 calls with Rajan Mehta in the 72 hours before the Paharganj murder.",
+            "Vikas Tiwari was previously arrested in 2015 under FIR #2015-MUM-0203 for extortion of a Dharavi textile merchant but acquitted due to lack of evidence.",
+
+            # Drug trafficking link
+            "NovaTrade Solutions (Rajan Mehta's shell company) imported chemicals from China diverted for methamphetamine production, per NCB Case #NCB-2022-0044.",
+            "NCB Case #NCB-2022-0044 identified a drug lab in Vapi, Gujarat run by Suresh Patel who reports directly to Rajan Mehta.",
+            "Suresh Patel was arrested in Vapi in January 2023 with 18 kg of methamphetamine and confessed that 'Raju Bhai' (Rajan Mehta) is his supplier.",
+            "Drug money from Suresh Patel's Vapi operation was deposited into Leela Devi's bank accounts in cash deposits of Rs 49,000 per transaction to avoid KYC flagging.",
+
+            # Gang network and assets
+            "The Mehta Crime Syndicate controls illegal gambling dens in Mumbai's Ghatkopar, Kurla, and Dharavi generating an estimated Rs 2 crore per month.",
+            "The syndicate operates an illegal betting app called 'Lucky Star' hosted on servers in Macau.",
+            "Lucky Star app was found on 14 phones seized during Dharavi police raid in May 2022 (Raid Report #MUM-RAID-2022-0077).",
+            "Rajan Mehta owns a Lonavala property worth Rs 3.8 crore registered under his wife Anita Mehta's name to evade income tax.",
+            "Anita Mehta (wife of Rajan Mehta) owns properties worth Rs 9.1 crore across Mumbai, Lonavala, and Dubai despite having no declared income.",
+
+            # International links / Interpol
+            "Interpol Red Notice #A-1234/2022 was issued against Rajan Mehta in 2022 for transnational money laundering and arms trafficking.",
+            "Rajan Mehta holds a fraudulent passport under the name 'Rohan Malhotra' obtained through a corrupt contact in the Andheri Passport Office.",
+            "Using the passport of 'Rohan Malhotra', Rajan Mehta met Farooq Al-Rashidi at the Grand Hyatt Hotel in Dubai in November 2021, confirmed by hotel records obtained by RAW.",
+
+            # Political nexus
+            "MLA Deshmukh from Nashik is alleged to have received Rs 1.5 crore in cash from the Mehta Syndicate for ensuring police officer transfers that weakened investigation teams.",
+            "MLA Deshmukh's aide Satish Gore was caught on a wiretap in March 2021 discussing police transfers and protection arrangements with an unidentified Mehta Syndicate member.",
+
+            # Victims and witnesses
+            "Witness Suresh Nair who retracted testimony in FIR #2018-MUM-0041 later told a magistrate he received Rs 25 lakh and death threats to change his statement.",
+            "Anil Kapoor (victim in FIR #2019-DEL-0089) was a rival drug dealer attempting to expand from Delhi into Mumbai, directly threatening the Mehta syndicate's territory.",
+            "Journalist Ramesh Sharma from The Mumbai Mirror was investigating Rajan Mehta's financial network and received death threats in August 2022; his exposé was published posthumously.",
         ],
         "questions": [
-            "Who is the CEO of DHL?",
-            "What did DHL and Maersk partner for in 2024?",
-            "Which company operates the largest cargo airline fleet?",
-            "How did the Suez Canal blockage impact Maersk and DHL?",
-            "What AI platform did FedEx launch?",
-            "Which DHL division handles pharmaceutical cold chain?",
+            "What are all crimes Rajan Mehta is linked to across all FIRs?",
+            "How is Leela Devi connected to Rajan Mehta's money laundering network?",
+            "Trace the complete money trail from Dubai to India in this case",
+            "Who are all known associates and aliases of Rajan Mehta?",
+            "What is the connection between the 2018 arms case and the 2019 Delhi murder?",
+            "How is Farooq Al-Rashidi connected to the Bengaluru bomb blast?",
+            "Which shell companies were used for laundering and who owns them?",
+            "What properties does Rajan Mehta control through family members?",
         ]
     }
 }
 
 
 def get_sector_names() -> list:
-    """Returns list of sector names for the frontend dropdown."""
     return list(DEMO_SECTORS.keys())
 
 
 def get_sector_facts(sector: str) -> list:
-    """Returns list of facts to ingest for a given sector."""
     return DEMO_SECTORS.get(sector, {}).get("facts", [])
 
 
 def get_sector_questions(sector: str) -> list:
-    """Returns list of suggested demo questions for a given sector."""
     return DEMO_SECTORS.get(sector, {}).get("questions", [])
 
 
 def get_sector_description(sector: str) -> str:
-    """Returns the one-line description for a sector."""
     return DEMO_SECTORS.get(sector, {}).get("description", "")
